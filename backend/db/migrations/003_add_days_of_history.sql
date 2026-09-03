@@ -1,0 +1,1 @@
+ALTER TABLE features_daily ADD COLUMN IF NOT EXISTS days_of_history INT;

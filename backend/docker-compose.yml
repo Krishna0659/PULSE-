@@ -1,0 +1,100 @@
+version: "3.9"
+
+volumes:
+  postgres_data:
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: pulse
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway-svc:
+    build: ./gateway-svc
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-strong-random-secret}
+      - AUTH_SVC_URL=http://auth-svc:8001
+      - INGESTION_SVC_URL=http://ingestion-svc:8002
+      - FEATURE_SVC_URL=http://feature-svc:8003
+      - ANOMALY_SVC_URL=http://anomaly-svc:8004
+      - EXPLAIN_SVC_URL=http://explain-svc:8005
+    depends_on:
+      db:
+        condition: service_healthy
+
+  auth-svc:
+    build: ./auth-svc
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ingestion-svc:
+    build: ./ingestion-svc
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  feature-svc:
+    build: ./feature-svc
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+    depends_on:
+      db:
+        condition: service_healthy
+
+  anomaly-svc:
+    build: ./anomaly-svc
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  explain-svc:
+    build: ./explain-svc
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
+      - JWT_SECRET=${JWT_SECRET}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy

@@ -1,0 +1,9 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+psycopg2-binary>=2.9.9
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+python-jose[cryptography]>=3.3.0
+pandas>=2.0.0
+python-multipart>=0.0.9
+numpy>=1.26.0
