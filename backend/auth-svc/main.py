@@ -79,6 +79,9 @@ DEV_MODE = os.environ.get("DEV_MODE", "false").lower() == "true"  # Set to true 
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "+917307379811")
+# Twilio Verify Service SID (starts with VA). When set, Verify API is used instead
+# of raw messages.create() — Verify handles code generation, delivery, and check.
+TWILIO_VERIFY_SERVICE_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
 
 # Redis URL
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -289,50 +292,147 @@ def _check_otp_send_rate_limit(phone: str) -> bool:
         return True
 
 
-def send_otp_sms(to_phone: str, otp_code: str, purpose: str) -> None:
-    """
-    Send the OTP via SMS (Twilio if configured).
-    Falls back to console logging — clearly marked DEV-ONLY.
-    """
-    purpose_map = {
-        "login": "login",
-        "signup": "account verification",
-        "password_reset": "password reset",
-    }
-    purpose_label = purpose_map.get(purpose, "verification")
-    body = (
-        f"[Pulse] Your {purpose_label} code is: {otp_code}. "
-        f"Valid for {OTP_TTL_SECONDS // 60} min. Do not share."
-    )
-
+def _get_twilio_client():
+    """Return a Twilio REST client if credentials are configured, else None."""
     if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
         try:
             from twilio.rest import Client
-            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-            msg = client.messages.create(
-                body=body,
-                from_=TWILIO_FROM_NUMBER,
-                to=to_phone,
-            )
-            log.info("SMS sent to %s (sid=%s, purpose=%s)", to_phone, msg.sid, purpose)
+            return Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         except Exception as exc:
-            log.error("Twilio SMS failed for %s: %s", to_phone, exc)
-            log.warning("[DEV-ONLY FALLBACK] OTP for %s (purpose=%s): %s", to_phone, purpose, otp_code)
-    else:
-        # No Twilio configured — DEV-ONLY console fallback
-        log.warning(
-            "========== [DEV-ONLY — CONFIGURE TWILIO FOR REAL SMS] ==========\n"
-            "SMS OTP for %s (purpose=%s): %s\n"
-            "=================================================================",
-            to_phone, purpose, otp_code,
+            log.error("Failed to initialise Twilio client: %s", exc)
+    return None
+
+
+def send_otp_sms(to_phone: str, otp_code: str, purpose: str) -> None:
+    """
+    Send the OTP via SMS.
+    - If TWILIO_VERIFY_SERVICE_SID is set: delegates entirely to Twilio Verify
+      (Verify generates and sends the code; otp_code arg is unused in that path).
+    - If only TWILIO_ACCOUNT_SID/AUTH_TOKEN are set: uses legacy messages.create().
+    - Falls back to console logging in dev when no Twilio is configured.
+    """
+    # ── Twilio Verify path (preferred) ───────────────────────────────────────
+    if TWILIO_VERIFY_SERVICE_SID:
+        client = _get_twilio_client()
+        if client:
+            try:
+                verification = client.verify.v2 \
+                    .services(TWILIO_VERIFY_SERVICE_SID) \
+                    .verifications \
+                    .create(to=to_phone, channel="sms")
+                log.info(
+                    "Twilio Verify OTP sent to %s (sid=%s, status=%s, purpose=%s)",
+                    to_phone, verification.sid, verification.status, purpose,
+                )
+                return
+            except Exception as exc:
+                log.error("Twilio Verify send failed for %s: %s", to_phone, exc)
+                # Do not fall through to legacy path — raise so caller can 502
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Failed to send verification code. Please try again.",
+                )
+        # Client could not be constructed — fall through to console fallback
+
+    # ── Legacy messages.create() path (kept for backward compat) ────────────
+    elif TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+        purpose_map = {
+            "login": "login",
+            "signup": "account verification",
+            "password_reset": "password reset",
+        }
+        purpose_label = purpose_map.get(purpose, "verification")
+        body = (
+            f"[Pulse] Your {purpose_label} code is: {otp_code}. "
+            f"Valid for {OTP_TTL_SECONDS // 60} min. Do not share."
         )
+        client = _get_twilio_client()
+        if client:
+            try:
+                msg = client.messages.create(
+                    body=body,
+                    from_=TWILIO_FROM_NUMBER,
+                    to=to_phone,
+                )
+                log.info("SMS sent to %s (sid=%s, purpose=%s)", to_phone, msg.sid, purpose)
+                return
+            except Exception as exc:
+                log.error("Twilio SMS failed for %s: %s", to_phone, exc)
+                log.warning("[DEV-ONLY FALLBACK] OTP for %s (purpose=%s): %s", to_phone, purpose, otp_code)
+                return
+
+    # ── No Twilio configured — DEV-ONLY console fallback ────────────────────
+    log.warning(
+        "========== [DEV-ONLY — CONFIGURE TWILIO FOR REAL SMS] ==========\n"
+        "SMS OTP for %s (purpose=%s): %s\n"
+        "=================================================================",
+        to_phone, purpose, otp_code,
+    )
+
+
+def verify_otp_via_twilio(phone: str, code: str) -> bool:
+    """
+    Check an OTP code against Twilio Verify.
+    Returns True if Twilio confirms status == 'approved'.
+    Raises HTTPException for all failure conditions (invalid code, expired,
+    max attempts, Twilio error) so callers need no extra logic.
+    Only called when TWILIO_VERIFY_SERVICE_SID is configured.
+    """
+    client = _get_twilio_client()
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Verification service is temporarily unavailable.",
+        )
+    try:
+        check = client.verify.v2 \
+            .services(TWILIO_VERIFY_SERVICE_SID) \
+            .verification_checks \
+            .create(to=phone, code=code)
+    except Exception as exc:
+        error_str = str(exc)
+        # Twilio Verify surfaces specific error codes in the exception message.
+        # 60202 = max check attempts reached; 60203 = expired; 60200 = invalid param
+        if "60202" in error_str:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Too many incorrect OTP attempts. Please request a new code.",
+            )
+        if "60203" in error_str or "not found" in error_str.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This OTP has expired or does not exist. Please request a new one.",
+            )
+        log.error("Twilio Verify check failed for %s: %s", phone, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Verification service error. Please try again.",
+        )
+
+    if check.status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect OTP. Please check the code and try again.",
+        )
+    return True
 
 
 def create_and_send_otp(user_id: str, phone: str, purpose: str) -> str:
     """
-    Generate an OTP, store it in otp_codes, send it via SMS.
-    Returns the OTP code (used only for test introspection in dev).
+    Send an OTP for the given purpose.
+
+    - When TWILIO_VERIFY_SERVICE_SID is set: Twilio Verify generates and sends
+      the code. No code is stored locally; an empty string is returned so that
+      callers (and DEV_MODE) don't expose a Verify-managed code.
+    - Otherwise: generates a local code, stores it in otp_codes, and sends via
+      SMS (or logs to console in dev). Returns the code for DEV_MODE display.
     """
+    if TWILIO_VERIFY_SERVICE_SID:
+        # Twilio Verify owns the code — do not generate or store locally
+        send_otp_sms(phone, "", purpose)  # otp_code arg unused in Verify path
+        return ""  # empty: never expose a Verify-managed code in responses
+
+    # Fallback: local generation + DB storage + legacy SMS / console log
     code = _generate_otp_code()
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=OTP_TTL_SECONDS)
     db_execute(
@@ -643,7 +743,11 @@ async def signup_verify_otp(body: SignupVerifyOtpRequest):
     if user["phone_verified"]:
         return {"message": "Phone is already verified. You can log in."}
 
-    validate_otp(str(user["id"]), body.otp, "signup")
+    # Verify the OTP — use Twilio Verify if configured, else local DB check
+    if TWILIO_VERIFY_SERVICE_SID:
+        verify_otp_via_twilio(body.phone_number, body.otp)
+    else:
+        validate_otp(str(user["id"]), body.otp, "signup")
 
     db_execute(
         "UPDATE users SET phone_verified = true WHERE id = %s",
@@ -762,7 +866,11 @@ async def login_verify_otp(body: LoginVerifyOtpRequest):
             detail="Invalid credentials or unverified account",
         )
 
-    validate_otp(str(user["id"]), body.otp, "login")
+    # Verify the OTP — use Twilio Verify if configured, else local DB check
+    if TWILIO_VERIFY_SERVICE_SID:
+        verify_otp_via_twilio(body.phone_number, body.otp)
+    else:
+        validate_otp(str(user["id"]), body.otp, "login")
 
     merchant_id_str = str(user["merchant_id"]) if user["merchant_id"] else None
     token = create_token({
@@ -850,7 +958,11 @@ async def reset_password(body: ResetPasswordRequest):
             detail=complexity_error,
         )
 
-    validate_otp(str(user["id"]), body.otp, "password_reset")
+    # Verify the OTP — use Twilio Verify if configured, else local DB check
+    if TWILIO_VERIFY_SERVICE_SID:
+        verify_otp_via_twilio(body.phone_number, body.otp)
+    else:
+        validate_otp(str(user["id"]), body.otp, "password_reset")
 
     new_hash = hash_password(body.new_password)
     db_execute(
