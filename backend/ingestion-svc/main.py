@@ -417,7 +417,7 @@ async def upload_csv(
     if missing:
         raise HTTPException(
             status_code=422,
-            detail=f"Missing required columns: {', '.join(missing)}"
+            detail=f"Missing columns: {', '.join(missing)}"
         )
 
     errors = []
