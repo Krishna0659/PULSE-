@@ -72,7 +72,38 @@ sequenceDiagram
 
 ## 🚀 Getting Started
 
-The easiest way to run the entire Pulse stack locally is using **Docker Compose**.
+You can run Pulse either using **Docker Compose** (recommended for Linux/Mac) or natively using the included startup scripts (recommended for Windows).
+
+### Important: Required Services
+Before starting, you must configure two external services in `backend/.env`:
+1. **Redis**: Pulse uses Redis for rate limiting and JWT token validation. If you cannot run Redis locally via Docker, create a free database at [Upstash](https://upstash.com/) and paste the `rediss://...` URL into your `.env` file as `REDIS_URL`.
+2. **Twilio Verify**: Pulse uses Twilio Verify for phone number OTPs. Create a free Twilio account, configure a Verify Service, and paste your `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID` in `.env`. *(If you leave these blank, the backend will print fallback OTPs into the server console for local testing).*
+
+---
+
+### Option A: Windows Native Startup (Recommended for Windows)
+
+If you have Python and Node.js installed on Windows, you can start everything with a single click.
+
+1. **Clone the repository:**
+   ```cmd
+   git clone https://github.com/Krishna0659/PULSE-.git
+   cd PULSE-
+   ```
+2. **Set up environment variables:**
+   Copy `backend/.env.example` to `backend/.env` and fill in your Anthropic API Key, Twilio Verify SID, and Redis URL.
+3. **Run the startup script:**
+   Double-click `start_all.bat` in the root folder, or run it from the command prompt:
+   ```cmd
+   .\start_all.bat
+   ```
+   *This script will attempt to start a local Redis Docker container. If Docker is not running, ensure you configured Upstash in your `.env`!*
+
+---
+
+### Option B: Docker Compose (Recommended for Mac/Linux)
+
+The easiest way to run the entire Pulse stack in isolated containers.
 
 ### Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose installed
