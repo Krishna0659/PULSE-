@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from "rea
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./components/Toast";
 import Cursor from "./components/Cursor";
-import ScrollProgress from "./components/ScrollProgress";
 import PageTransition from "./components/PageTransition";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
@@ -59,7 +58,6 @@ export default function App() {
         <BrowserRouter>
           <ScrollToTop />
           <Cursor />
-          <ScrollProgress />
           <Routes>
             <Route element={<PublicLayout />}>
               <Route path="/" element={<Home />} />

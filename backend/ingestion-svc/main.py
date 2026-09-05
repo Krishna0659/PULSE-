@@ -377,6 +377,8 @@ async def get_simulation_status(merchant_id: str, user: dict = Depends(get_curre
 @app.post("/upload")
 async def upload_csv(
     merchant_id: str = Form(...),
+    stream: bool = Form(False),
+    target_seconds: int = Form(30),
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user)
 ):
@@ -484,21 +486,68 @@ async def upload_csv(
     rows_duplicate = 0
 
     if valid_rows:
-        insert_query = """
-        INSERT INTO transactions
-        (merchant_id, ts, amount, currency, status, payment_method, customer_id, is_refund, source)
-        VALUES %s
-        ON CONFLICT (merchant_id, ts, amount, customer_id, status) DO NOTHING
-        RETURNING id
-        """
-        
-        with get_conn() as conn:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                psycopg2.extras.execute_values(cur, insert_query, valid_rows, page_size=1000)
-                ingested_records = cur.fetchall()
-                rows_ingested = len(ingested_records)
-                rows_duplicate = len(valid_rows) - rows_ingested
+        if stream:
+            # Handle streaming
+            # Sort valid rows by timestamp (index 1)
+            valid_rows.sort(key=lambda x: x[1])
+            
+            start_date = valid_rows[0][1].date()
+            end_date = valid_rows[-1][1].date()
+            total_days = (end_date - start_date).days + 1
+            if total_days < 1:
+                total_days = 1
+                
+            # target_seconds controls how fast the simulation runs.
+            # speed_multiplier = total_days / target_seconds
+            speed_multiplier = max(0.1, total_days / max(1, target_seconds))
+            
+            # Convert valid_rows (tuples) to list of dicts for run_simulation_task
+            txns = []
+            for r in valid_rows:
+                txns.append({
+                    "merchant_id": r[0],
+                    "ts": r[1],
+                    "amount": r[2],
+                    "currency": r[3],
+                    "status": r[4],
+                    "payment_method": r[5],
+                    "customer_id": r[6],
+                    "is_refund": r[7],
+                    "source": r[8]
+                })
+                
+            simulations[merchant_id] = {
+                "status": "running",
+                "persona": "real_upload",
+                "days": total_days,
+                "speed_multiplier": speed_multiplier,
+                "seed": 0,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "current_day_index": 0,
+                "total_days": total_days
+            }
+            
+            task = asyncio.create_task(run_simulation_task(merchant_id, txns, start_date, total_days, speed_multiplier))
+            simulations[merchant_id]["task"] = task
+            
+            rows_ingested = len(valid_rows)
+            rows_duplicate = 0
+        else:
+            insert_query = """
+            INSERT INTO transactions
+            (merchant_id, ts, amount, currency, status, payment_method, customer_id, is_refund, source)
+            VALUES %s
+            ON CONFLICT (merchant_id, ts, amount, customer_id, status) DO NOTHING
+            RETURNING id
+            """
+            
+            with get_conn() as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    psycopg2.extras.execute_values(cur, insert_query, valid_rows, page_size=1000)
+                    ingested_records = cur.fetchall()
+                    rows_ingested = len(ingested_records)
+                    rows_duplicate = len(valid_rows) - rows_ingested
 
         # Audit log
         db_execute(
@@ -527,10 +576,17 @@ async def upload_csv(
         error_msg = f"Row accounting mismatch! Total: {total_rows_in_file}, Ingested: {rows_ingested}, Rejected: {len(errors)}, Duplicate: {rows_duplicate}"
         print(f"ERROR: {error_msg}", file=sys.stderr, flush=True)
 
-    return {
+    res = {
         "merchant_id": merchant_id,
         "rows_ingested": rows_ingested,
         "rows_rejected": len(errors),
         "rows_duplicate": rows_duplicate,
         "errors": errors
     }
+    
+    if stream and valid_rows:
+        res["stream"] = True
+        res["total_days"] = total_days
+        res["estimated_real_seconds"] = target_seconds
+        
+    return res

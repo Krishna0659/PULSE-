@@ -115,8 +115,20 @@ def _rule_based_fallback(anomaly_row: dict, merchant_name: str) -> dict:
     severity = anomaly_row.get("severity")
     sev_pct = f"{float(severity) * 100:.0f}%" if severity else "elevated"
 
-    # Pull the most impactful feature names for the explanation
-    top_features = sorted(feats.items(), key=lambda x: abs(float(x[1])) if x[1] else 0, reverse=True)[:3]
+    # Pull the most impactful feature names for the explanation safely
+    flat_feats = {}
+    if isinstance(feats, dict):
+        for k, v in feats.items():
+            if isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    if sub_v is not None:
+                        try: flat_feats[sub_k] = float(sub_v)
+                        except (TypeError, ValueError): pass
+            elif v is not None:
+                try: flat_feats[k] = float(v)
+                except (TypeError, ValueError): pass
+
+    top_features = sorted(flat_feats.items(), key=lambda x: abs(x[1]), reverse=True)[:3]
     feat_str = ", ".join(f"{k.replace('_', ' ')}" for k, _ in top_features) if top_features else "multiple metrics"
 
     templates = {

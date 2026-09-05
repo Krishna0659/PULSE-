@@ -52,12 +52,17 @@ export const merchantApi = {
 
 // ---- Ingestion (upload + simulate) -------------------------------------
 export const ingestApi = {
-  upload: (merchant_id, file) => {
-    const form = new FormData();
-    form.append("merchant_id", merchant_id);
-    form.append("file", file);
-    return api.post("/upload", form, {
+  upload: (merchantId, file, stream = false, targetSeconds = 30, onUploadProgress) => {
+    const formData = new FormData();
+    formData.append("merchant_id", merchantId);
+    formData.append("file", file);
+    if (stream) {
+      formData.append("stream", "true");
+      formData.append("target_seconds", targetSeconds.toString());
+    }
+    return api.post("/upload", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
     });
   },
   simulateStart: (body) => api.post("/simulate/start", body),

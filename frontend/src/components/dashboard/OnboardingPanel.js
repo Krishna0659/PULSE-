@@ -20,6 +20,9 @@ export default function OnboardingPanel({ merchantId, simStatus, onStart, onStop
   const [speed, setSpeed] = useState(20);
   const [seed, setSeed] = useState("");
 
+  const [streamUpload, setStreamUpload] = useState(false);
+  const [targetSeconds, setTargetSeconds] = useState(30);
+
   const running = simStatus?.status === "running";
   const pct = running || simStatus?.status === "completed"
     ? Math.min(100, Math.round(((simStatus?.current_day_index || 0) / (simStatus?.total_days || 1)) * 100))
@@ -31,10 +34,15 @@ export default function OnboardingPanel({ merchantId, simStatus, onStart, onStop
     if (!file.name.endsWith(".csv")) { toast.error("Please upload a .csv file."); return; }
     setUploading(true); setUploadResult(null);
     try {
-      const { data } = await ingestApi.upload(merchantId, file);
-      setUploadResult(data);
-      toast.success(`Ingested ${data.rows_ingested} rows (${data.rows_rejected} rejected, ${data.rows_duplicate} duplicate).`);
-      onIngested?.(data);
+      const { data } = await ingestApi.upload(merchantId, file, streamUpload, Number(targetSeconds));
+      if (data.stream) {
+        toast.success(`Started live stream simulation over ${data.estimated_real_seconds}s!`);
+        setTab("simulate");
+      } else {
+        setUploadResult(data);
+        toast.success(`Ingested ${data.rows_ingested} rows (${data.rows_rejected} rejected, ${data.rows_duplicate} duplicate).`);
+        onIngested?.(data);
+      }
     } catch (err) { toast.error(apiError(err)); }
     finally { setUploading(false); }
   };
@@ -155,6 +163,21 @@ export default function OnboardingPanel({ merchantId, simStatus, onStart, onStop
                 <UploadCloud className={`w-8 h-8 mx-auto mb-4 ${dragging ? "text-cobalt" : "text-muted"}`} strokeWidth={1.5} />
                 <p className="text-ink font-medium mb-1">{uploading ? "Uploading…" : "Drop a CSV or click to browse"}</p>
                 <p className="text-[12px] text-faint">Columns: ts, amount, status, payment_method, customer_id</p>
+              </div>
+              
+              <div className="mt-5 flex items-center justify-between border-b border-line pb-4 mb-2">
+                <label className="data-label text-[11px] text-ink flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={streamUpload} onChange={(e) => setStreamUpload(e.target.checked)} className="accent-cobalt" />
+                  Stream data live (Simulation Mode)
+                </label>
+                <AnimatePresence>
+                  {streamUpload && (
+                    <motion.div initial={{ opacity: 0, width: 0 }} animate={{ opacity: 1, width: "auto" }} exit={{ opacity: 0, width: 0 }} className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
+                      <span className="data-label text-[10px] text-faint">Duration (sec)</span>
+                      <input type="number" min="10" max="120" value={targetSeconds} onChange={(e) => setTargetSeconds(e.target.value)} className="field text-[11px] py-1 px-2 w-16" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <AnimatePresence>
