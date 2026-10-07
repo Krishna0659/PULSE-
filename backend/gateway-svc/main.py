@@ -32,7 +32,12 @@ app = FastAPI(title="gateway-svc")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], 
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,7 +56,7 @@ def get_conn():
 
 client = httpx.AsyncClient(timeout=30.0)
 
-RATE_LIMIT = 10
+RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "60"))
 RATE_WINDOW = 60
 ip_records: dict = {}  # In-memory fallback when Redis is unavailable
 
@@ -149,6 +154,10 @@ async def proxy(url: str, request: Request, is_multipart: bool = False):
 # ROUTES
 # ---------------------------------------------------------
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "gateway-svc"}
+
 @app.get("/health/all")
 async def health_all():
     import asyncio
@@ -199,10 +208,20 @@ async def proxy_auth_signup_verify(request: Request):
     check_rate_limit(request)
     return await proxy(AUTH_SVC_URL + "/auth/signup/verify-otp", request)
 
+@app.post("/auth/verify-email")
+async def proxy_auth_verify_email(request: Request):
+    check_rate_limit(request)
+    return await proxy(AUTH_SVC_URL + "/auth/verify-email", request)
+
 @app.post("/auth/signup/resend-otp")
 async def proxy_auth_signup_resend(request: Request):
     check_rate_limit(request)
     return await proxy(AUTH_SVC_URL + "/auth/signup/resend-otp", request)
+
+@app.post("/auth/resend-otp")
+async def proxy_auth_resend_otp(request: Request):
+    check_rate_limit(request)
+    return await proxy(AUTH_SVC_URL + "/auth/resend-otp", request)
 
 @app.post("/auth/forgot-password")
 async def proxy_auth_forgot(request: Request):

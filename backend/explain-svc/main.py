@@ -17,9 +17,9 @@ if not JWT_SECRET:
     print("FATAL: JWT_SECRET environment variable is not set.", file=sys.stderr)
     sys.exit(1)
     
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-if not ANTHROPIC_API_KEY:
-    print("WARNING: ANTHROPIC_API_KEY not set — explain-svc will use rule-based fallback explanations.", file=sys.stderr)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    print("WARNING: GEMINI_API_KEY not set — explain-svc will use rule-based fallback explanations.", file=sys.stderr)
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")

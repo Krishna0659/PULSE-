@@ -4,7 +4,28 @@ import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
 import OtpInput from "./OtpInput";
 
 // Shared OTP step — used by Signup, Login, and ForgotPassword flows.
-export function OtpStep({ identifier, identifierLabel = "phone", otp, setOtp, onVerify, onResend, seconds, loading, onBack, title, subtitle }) {
+export function OtpStep({
+  identifier,
+  maskedIdentifier,
+  otp,
+  setOtp,
+  onVerify,
+  onResend,
+  seconds,
+  cooldownSeconds,
+  loading,
+  onBack,
+  title = "Verify your email",
+  subtitle,
+}) {
+  const displayIdentifier = maskedIdentifier || identifier;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  const timeFormatted = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+
+  // Resend cooldown: 60s cooldown if calculated from 120s timer or passed explicitly
+  const cd = cooldownSeconds !== undefined ? cooldownSeconds : Math.max(0, seconds - 60);
+
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.35 }}>
       <button onClick={onBack} className="flex items-center gap-2 text-muted hover:text-ink transition-colors mb-8 data-label text-[11px]">
@@ -13,7 +34,12 @@ export function OtpStep({ identifier, identifierLabel = "phone", otp, setOtp, on
       <p className="data-label text-[11px] text-cobalt mb-3">One-time code</p>
       <h1 className="font-display font-extrabold text-4xl tracking-tight mb-3">{title}</h1>
       <p className="text-muted mb-8 leading-relaxed">
-        {subtitle || `We sent a 6-digit SMS code to`} <span className="text-ink font-medium">{identifier}</span>. It expires in 2 minutes.
+        {subtitle || (
+          <>
+            Enter the 6-digit code sent to your email{" "}
+            {displayIdentifier && <span className="text-ink font-medium">{displayIdentifier}</span>}.
+          </>
+        )}
       </p>
 
       <OtpInput value={otp} onChange={setOtp} onComplete={onVerify} disabled={loading} />
@@ -21,18 +47,19 @@ export function OtpStep({ identifier, identifierLabel = "phone", otp, setOtp, on
       <div className="flex items-center justify-between mt-8">
         <div className="data-label text-[11px] text-muted">
           {seconds > 0 ? (
-            <span>Expires in <span className="text-ink tabular-nums">0:{String(seconds).padStart(2, "0")}</span></span>
+            <span>Expires in <span className="text-ink tabular-nums">{timeFormatted}</span></span>
           ) : (
-            <span className="text-caution">Code expired</span>
+            <span className="text-critical font-medium">Code expired</span>
           )}
         </div>
         <button
           data-testid="otp-resend"
           onClick={onResend}
-          disabled={seconds > 0}
+          disabled={cd > 0 || loading}
           className="flex items-center gap-2 data-label text-[11px] disabled:opacity-40 disabled:cursor-not-allowed text-cobalt hover:opacity-80 transition-opacity"
         >
-          <RefreshCw className="w-3.5 h-3.5" /> Resend code
+          <RefreshCw className="w-3.5 h-3.5" />
+          {cd > 0 ? `Resend OTP in ${cd}s` : "Resend OTP"}
         </button>
       </div>
 

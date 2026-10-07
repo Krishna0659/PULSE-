@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Eye, EyeOff, Building2, Phone } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Building2, Phone, Mail } from "lucide-react";
 import AuthLayout from "../../components/AuthLayout";
 import { OtpStep } from "../../components/OtpStep";
 import PasswordChecklist, { passwordValid } from "../../components/PasswordChecklist";
@@ -10,7 +10,7 @@ import { useToast } from "../../components/Toast";
 import { useAuth } from "../../context/AuthContext";
 import { authApi, apiError } from "../../lib/api";
 import { ROLES } from "../../lib/constants";
-import { isValidPhone } from "../../lib/utils";
+import { isValidEmail, maskEmail } from "../../lib/utils";
 
 export default function Signup() {
   const nav = useNavigate();
@@ -23,16 +23,22 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [otp, setOtp] = useState("");
+  const [maskedEmail, setMaskedEmail] = useState("");
 
   const [form, setForm] = useState({
-    name: "", phone_number: "", password: "", confirm_password: "",
-    role: "merchant", merchant_name: "",
+    name: "",
+    email: "",
+    phone_number: "",
+    password: "",
+    confirm_password: "",
+    role: "merchant",
+    merchant_name: "",
   });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const formValid =
     form.name.trim().length > 0 &&
-    isValidPhone(form.phone_number) &&
+    isValidEmail(form.email) &&
     passwordValid(form.password) &&
     form.password === form.confirm_password &&
     (form.role !== "merchant" || form.merchant_name.trim());
@@ -44,9 +50,10 @@ export default function Signup() {
     try {
       const payload = { ...form };
       if (form.role !== "merchant") delete payload.merchant_name;
+      if (!payload.phone_number.trim()) delete payload.phone_number;
       const { data } = await authApi.signup(payload);
-      toast.success("Account created. Check your phone for a 6-digit code.");
-      if (data?.dev_otp) setOtp(data.dev_otp);
+      toast.success("Account created! Check your email for a 6-digit verification code.");
+      setMaskedEmail(data?.masked_email || maskEmail(form.email));
       setStep(1);
       start(120);
     } catch (err) {
@@ -59,9 +66,9 @@ export default function Signup() {
   const verify = async (code) => {
     setLoading(true);
     try {
-      await authApi.signupVerify(form.phone_number, code);
-      toast.success("Phone verified. You can log in now.");
-      nav("/login", { state: { phone_number: form.phone_number } });
+      await authApi.signupVerify(form.email, code);
+      toast.success("Email verified successfully! You can log in now.");
+      nav("/login", { state: { email: form.email } });
     } catch (err) {
       toast.error(apiError(err));
       setOtp("");
@@ -72,13 +79,11 @@ export default function Signup() {
 
   const resend = async () => {
     try {
-      const { data } = await authApi.signupResend(form.phone_number);
-      toast.info("A fresh code is on its way to your phone.");
+      const { data } = await authApi.signupResend(form.email);
+      toast.info("A fresh verification code is on its way to your email.");
+      setMaskedEmail(data?.masked_email || maskEmail(form.email));
       start(120);
       setOtp("");
-      if (data?.dev_otp) {
-        setTimeout(() => setOtp(data.dev_otp), 1000);
-      }
     } catch (err) {
       toast.error(apiError(err));
     }
@@ -96,22 +101,46 @@ export default function Signup() {
             <form onSubmit={submitForm} className="space-y-5" data-testid="signup-form">
               <div>
                 <label className="data-label text-[11px] text-muted block mb-2">Full name</label>
-                <input data-testid="signup-name" className="field" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Ada Lovelace" />
+                <input
+                  data-testid="signup-name"
+                  className="field px-4 py-2.5 w-full"
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  placeholder="Ada Lovelace"
+                  required
+                />
               </div>
+
               <div>
-                <label className="data-label text-[11px] text-muted block mb-2">Phone number</label>
+                <label className="data-label text-[11px] text-muted block mb-2">Email address</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-faint absolute left-4 top-1/2 -translate-y-1/2" />
+                  <input
+                    data-testid="signup-email"
+                    type="email"
+                    className="field pl-11 pr-4 py-2.5 w-full"
+                    value={form.email}
+                    onChange={(e) => set("email", e.target.value)}
+                    placeholder="ada@example.com"
+                    required
+                  />
+                </div>
+                <p className="text-[11px] text-faint mt-1">We'll send your 6-digit verification code here</p>
+              </div>
+
+              <div>
+                <label className="data-label text-[11px] text-muted block mb-2">Phone number (optional)</label>
                 <div className="relative">
                   <Phone className="w-4 h-4 text-faint absolute left-4 top-1/2 -translate-y-1/2" />
                   <input
                     data-testid="signup-phone"
                     type="tel"
-                    className="field pl-11"
+                    className="field pl-11 pr-4 py-2.5 w-full"
                     value={form.phone_number}
                     onChange={(e) => set("phone_number", e.target.value)}
                     placeholder="+91 98765 43210"
                   />
                 </div>
-                <p className="text-[11px] text-faint mt-1">Include country code e.g. +91 for India, +1 for US</p>
               </div>
 
               {/* role selector */}
@@ -140,7 +169,13 @@ export default function Signup() {
                     <label className="data-label text-[11px] text-muted block mb-2">Business name</label>
                     <div className="relative">
                       <Building2 className="w-4 h-4 text-faint absolute left-4 top-1/2 -translate-y-1/2" />
-                      <input data-testid="signup-merchant-name" className="field pl-11" value={form.merchant_name} onChange={(e) => set("merchant_name", e.target.value)} placeholder="Acme Payments Pvt Ltd" />
+                      <input
+                        data-testid="signup-merchant-name"
+                        className="field pl-11 pr-4 py-2.5 w-full"
+                        value={form.merchant_name}
+                        onChange={(e) => set("merchant_name", e.target.value)}
+                        placeholder="Acme Payments Pvt Ltd"
+                      />
                     </div>
                   </motion.div>
                 )}
@@ -149,7 +184,15 @@ export default function Signup() {
               <div>
                 <label className="data-label text-[11px] text-muted block mb-2">Password</label>
                 <div className="relative">
-                  <input data-testid="signup-password" autoComplete="new-password" type={showPw ? "text" : "password"} className="field pr-11" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder="••••••••" />
+                  <input
+                    data-testid="signup-password"
+                    autoComplete="new-password"
+                    type={showPw ? "text" : "password"}
+                    className="field pl-4 pr-11 py-2.5 w-full"
+                    value={form.password}
+                    onChange={(e) => set("password", e.target.value)}
+                    placeholder="••••••••"
+                  />
                   <button type="button" onClick={() => setShowPw((s) => !s)} className="absolute right-4 top-1/2 -translate-y-1/2 text-faint hover:text-ink">
                     {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -159,7 +202,15 @@ export default function Signup() {
 
               <div>
                 <label className="data-label text-[11px] text-muted block mb-2">Confirm password</label>
-                <input data-testid="signup-confirm" autoComplete="new-password" type={showPw ? "text" : "password"} className="field" value={form.confirm_password} onChange={(e) => set("confirm_password", e.target.value)} placeholder="••••••••" />
+                <input
+                  data-testid="signup-confirm"
+                  autoComplete="new-password"
+                  type={showPw ? "text" : "password"}
+                  className="field px-4 py-2.5 w-full"
+                  value={form.confirm_password}
+                  onChange={(e) => set("confirm_password", e.target.value)}
+                  placeholder="••••••••"
+                />
                 {form.confirm_password && form.password !== form.confirm_password && (
                   <p className="text-[12px] text-critical mt-2">Passwords don't match.</p>
                 )}
@@ -175,15 +226,22 @@ export default function Signup() {
         {step === 1 && (
           <OtpStep
             key="otp"
-            identifier={form.phone_number}
-            identifierLabel="phone"
-            otp={otp} setOtp={setOtp}
+            identifier={form.email}
+            maskedIdentifier={maskedEmail || maskEmail(form.email)}
+            otp={otp}
+            setOtp={setOtp}
             onVerify={verify}
             onResend={resend}
             seconds={seconds}
             loading={loading}
             onBack={() => setStep(0)}
-            title="Verify your phone"
+            title="Verify your email"
+            subtitle={
+              <>
+                Enter the 6-digit code sent to your email{" "}
+                <span className="text-ink font-medium">{maskedEmail || maskEmail(form.email)}</span>.
+              </>
+            }
           />
         )}
       </AnimatePresence>

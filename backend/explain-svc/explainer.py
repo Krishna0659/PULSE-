@@ -1,9 +1,10 @@
 import os
 import json
 import re
-from anthropic import Anthropic
+from google import genai
+from google.genai import types
 
-MODEL_NAME = "claude-sonnet-4-20250514"
+MODEL_NAME = "gemini-3.5-flash"
 
 def generate_explanation(anomaly_row: dict, merchant_name: str) -> dict:
     if anomaly_row["classification"] in ("normal", "insufficient_data"):
@@ -44,23 +45,33 @@ recommendation for human review only."""
     }
     
     try:
-        # Check for transient timeout test override
-        timeout_val = 60.0
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set")
+
+        # Check for transient timeout test override (milliseconds for google-genai)
+        timeout_ms = 60000
         if os.environ.get("TEST_TIMEOUT") == "1":
-            timeout_val = 0.001
+            timeout_ms = 1
             
-        client = Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY"),
-            timeout=timeout_val
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=timeout_ms)
         )
         
-        response = client.messages.create(
-            model=MODEL_NAME,
-            max_tokens=300,
-            system=system_prompt,
-            messages=[{"role": "user", "content": json.dumps(user_payload)}]
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=500,
+            temperature=0.2,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
-        text = response.content[0].text.strip()
+        
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=json.dumps(user_payload),
+            config=config,
+        )
+        text = response.text.strip() if response.text else ""
         
         verdict = None
         why_not = None

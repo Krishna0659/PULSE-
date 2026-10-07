@@ -47,8 +47,14 @@ services:
     environment:
       - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
       - JWT_SECRET=${JWT_SECRET:-change-me-to-a-strong-random-secret}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - REDIS_URL=${REDIS_URL}
+      - SMTP_HOST=${SMTP_HOST:-smtp-relay.brevo.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-Pulse}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
     depends_on:
       db:
         condition: service_healthy
@@ -96,7 +102,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://pulse:pulse@db:5432/pulse
       - JWT_SECRET=${JWT_SECRET:-change-me-to-a-strong-random-secret}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
       db:
         condition: service_healthy

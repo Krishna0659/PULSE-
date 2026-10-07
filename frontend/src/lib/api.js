@@ -33,14 +33,22 @@ export function apiError(err) {
 // ---- Auth ---------------------------------------------------------------
 export const authApi = {
   signup: (body) => api.post("/auth/signup", body),
-  signupVerify: (phone_number, otp) => api.post("/auth/signup/verify-otp", { phone_number, otp }),
-  signupResend: (phone_number) => api.post("/auth/signup/resend-otp", { phone_number }),
-  login: (phone_number, password) => api.post("/auth/login", { phone_number, password }),
-  loginVerify: (phone_number, otp) => api.post("/auth/login/verify-otp", { phone_number, otp }),
-  forgot: (phone_number) => api.post("/auth/forgot-password", { phone_number }),
-  reset: (phone_number, otp, new_password) =>
-    api.post("/auth/reset-password", { phone_number, otp, new_password }),
+  signupVerify: (email, otp) => api.post("/auth/signup/verify-otp", { email, otp }),
+  signupResend: (email) => api.post("/auth/signup/resend-otp", { email }),
+  verifyEmail: (email, otp) => api.post("/auth/verify-email", { email, otp }),
+  resendOtp: (email) => api.post("/auth/resend-otp", { email }),
+  login: (identifier, password) => {
+    const isEmail = identifier && identifier.includes("@");
+    const payload = isEmail ? { email: identifier, password } : { phone_number: identifier, email: identifier, password };
+    return api.post("/auth/login", payload);
+  },
+  loginVerify: (identifier, otp) =>
+    api.post("/auth/login/verify-otp", { phone_number: identifier, email: identifier, otp }),
+  forgot: (email) => api.post("/auth/forgot-password", { email }),
+  reset: (email, otp, new_password) =>
+    api.post("/auth/reset-password", { email, otp, new_password }),
   me: () => api.get("/auth/me"),
+  logout: () => api.post("/auth/logout"),
 };
 
 // ---- Merchants ----------------------------------------------------------
