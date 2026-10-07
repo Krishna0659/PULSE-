@@ -56,7 +56,7 @@ sequenceDiagram
     participant M as Merchant
     participant P as Pulse Platform
     participant ML as Anomaly Engine
-    participant AI as Claude LLM
+    participant AI as Gemini LLM
     
     M->>P: 1. Sign up & Verify (OTP 2FA)
     M->>P: 2. Upload CSV / Start Live Simulation
